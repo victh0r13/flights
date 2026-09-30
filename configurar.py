@@ -5,7 +5,6 @@ config/rotas.json. Depois, a opção "Sincronizar" envia o arquivo para o GitHub
 onde o robô (robo.py) passa a usá-lo.
 """
 
-import getpass
 import os
 import re
 import subprocess
@@ -23,6 +22,7 @@ from rastreador.config import (
     ErroConfig,
     Rota,
     carregar_rotas,
+    email_valido,
     formatar_reais,
     gerar_id,
     hoje,
@@ -67,6 +67,16 @@ def perguntar_opcao(texto: str, opcoes: list[str]) -> int:
 def confirmar(texto: str, padrao: bool = True) -> bool:
     resposta = perguntar(f"{texto} (s/n)", "s" if padrao else "n").lower()
     return resposta.startswith("s")
+
+
+def perguntar_email(texto: str, padrao: str | None = None) -> str:
+    while True:
+        resposta = perguntar(texto, padrao)
+        if padrao and resposta.lower() in ("s", "sim"):  # a pessoa quis dizer "sim, esse mesmo"
+            return padrao
+        if email_valido(resposta):
+            return resposta
+        print("  → Isso não parece um e-mail. Exemplo: nome@gmail.com")
 
 
 def ler_data(texto: str) -> date | None:
@@ -200,17 +210,17 @@ def cadastrar_rota(rotas: list[Rota]) -> bool:
     rota.preco_alvo = perguntar_numero(f"\nValor alvo em R${total}", 50, 500_000, padrao=sugestao)
 
     ultimo_email = rotas[-1].email if rotas else None
-    while True:
-        rota.email = perguntar("\nE-mail que vai receber os alertas", ultimo_email)
-        try:
-            rota.validar()
-            break
-        except ErroConfig:
-            print("  → E-mail inválido.")
+    rota.email = perguntar_email("\nE-mail que vai receber os alertas", ultimo_email)
 
     cidade = lambda codigo: aeroportos.nome(codigo).split(" (")[0]  # "Lisboa (Humberto Delgado)" -> "Lisboa"
     nome_sugerido = f"{cidade(origem)} → {cidade(destino)}"
     rota.nome = perguntar("Um apelido para esta rota", nome_sugerido)
+
+    try:
+        rota.validar()  # rede de segurança: as perguntas acima já conferem cada resposta
+    except ErroConfig as erro:
+        print(f"[ERRO] {erro}")
+        return False
 
     print(f"\nResumo:\n  {rota.nome}\n  {rota.descrever()}\n  alertas para {rota.email}")
     if not confirmar("Salvar esta rota?"):
@@ -218,7 +228,7 @@ def cadastrar_rota(rotas: list[Rota]) -> bool:
         return False
     rotas.append(rota)
     salvar_rotas(rotas)
-    print("✔ Rota salva! Lembre de usar a opção 5 para enviar ao servidor.")
+    print("[OK] Rota salva! Lembre de usar a opção 5 para enviar ao servidor.")
     return True
 
 
@@ -238,10 +248,10 @@ def gerenciar_rota(rotas: list[Rota]) -> bool:
         return False
     if perguntar_opcao("O que fazer?", ["Reativar" if not rota.ativa else "Pausar", "Remover", "Voltar"]) == 0:
         rota.ativa = not rota.ativa
-        print("✔ Rota " + ("reativada." if rota.ativa else "pausada (o robô vai pular esta rota)."))
+        print("[OK] Rota " + ("reativada." if rota.ativa else "pausada (o robô vai pular esta rota)."))
     elif confirmar(f"Remover '{rota.nome}' de vez?", padrao=False):
         rotas.remove(rota)
-        print("✔ Rota removida.")
+        print("[OK] Rota removida.")
     else:
         return False
     salvar_rotas(rotas)
@@ -266,9 +276,23 @@ def testar_email() -> None:
     print("Use um Gmail e uma SENHA DE APP (não é a sua senha normal).")
     print("Como criar: https://myaccount.google.com/apppasswords  (veja o README, passo 2)")
     print("Nada do que você digitar aqui fica salvo.\n")
-    usuario = perguntar("Seu Gmail (remetente)")
-    senha = getpass.getpass("Senha de app (16 letras; não aparece enquanto digita): ")
-    para = perguntar("Enviar o teste para", usuario)
+    usuario = perguntar_email("Seu Gmail (remetente)")
+
+    # A senha aparece na tela de propósito. No modo invisível (getpass), o cmd lê tecla
+    # por tecla e não entende Ctrl+V como "colar": chegava um caractere de controle no
+    # lugar da senha. Como é uma senha de app (só serve para e-mail e pode ser apagada
+    # a qualquer momento), ver o que foi colado vale mais que escondê-lo.
+    print("\nAgora a senha de app: cole com Ctrl+V (ou botão direito do mouse) e aperte Enter.")
+    while True:
+        senha = perguntar("Senha de app").replace(" ", "")
+        if len(senha) == 16:
+            break
+        print(f"  [!] A senha de app tem 16 letras, mas chegaram {len(senha)} caractere(s).")
+        if not confirmar("  Colar/digitar de novo?"):
+            break
+
+    para = perguntar_email("\nPara qual e-mail mandar o teste? (Enter = o mesmo)", usuario)
+    print("\nEnviando...")
     try:
         enviar_email(
             para, "✈️ Teste do Rastreador de Passagens",
@@ -276,13 +300,13 @@ def testar_email() -> None:
             "<p>Se você recebeu este e-mail, o envio está <b>funcionando</b>! ✈️</p>",
             usuario=usuario, senha=senha,
         )
-        print(f"\n✔ E-mail enviado para {para}. Confira a caixa de entrada (e o spam).")
+        print(f"\n[OK] E-mail enviado para {para}. Confira a caixa de entrada (e o spam).")
         if endereco := endereco_github():
             print(f"  Cadastre os mesmos dados nos Secrets do GitHub: {endereco}/settings/secrets/actions")
         else:
             print("  Depois de conectar ao GitHub (opção 7), cadastre esses dados nos Secrets de lá.")
     except ErroEmail as erro:
-        print(f"\n✘ {erro}")
+        print(f"\n[ERRO] {erro}")
 
 
 # ------------------------------------------------------------ GitHub (servidor)
@@ -331,7 +355,7 @@ def conectar_github() -> None:
     if not url:
         return
     if not re.fullmatch(r"https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+", url):
-        print("✘ Esse endereço não parece de um repositório do GitHub (deve começar com https://github.com/).")
+        print("[ERRO] Esse endereço não parece de um repositório do GitHub (deve começar com https://github.com/).")
         return
     endereco = url.removesuffix(".git")
 
@@ -341,20 +365,20 @@ def conectar_github() -> None:
         if not git("config", "user.email").stdout.strip():
             print("\nO git precisa de um nome e e-mail para assinar os envios (só nesta pasta).")
             git("config", "user.name", perguntar("Seu nome"))
-            git("config", "user.email", perguntar("Seu e-mail"))
+            git("config", "user.email", perguntar_email("Seu e-mail"))
         git("add", "-A")
         git("commit", "-m", "Primeira versão do rastreador")
         git("remote", "add", "origin", endereco + ".git")
         print("\nEnviando o projeto... Se abrir uma janela pedindo login no GitHub, faça o login.\n")
         if git("push", "-u", "origin", "main", mostrar=True).returncode != 0:
             git("remote", "remove", "origin")  # desfaz, para poder tentar de novo
-            print("\n✘ O envio falhou. Confira o endereço e o login e tente de novo.")
+            print("\n[ERRO] O envio falhou. Confira o endereço e o login e tente de novo.")
             return
     except FileNotFoundError:
-        print("✘ O Git não está instalado. Baixe em https://git-scm.com/download/win e tente de novo.")
+        print("[ERRO] O Git não está instalado. Baixe em https://git-scm.com/download/win e tente de novo.")
         return
 
-    print("\n✔ Projeto enviado! Último passo: guardar os dados do e-mail no GitHub.")
+    print("\n[OK] Projeto enviado! Último passo: guardar os dados do e-mail no GitHub.")
     print(f"  Abra {endereco}/settings/secrets/actions e crie dois 'New repository secret':")
     print("    GMAIL_USUARIO   = seu Gmail")
     print("    GMAIL_SENHA_APP = a senha de app (README, passo 2)")
@@ -375,13 +399,13 @@ def sincronizar() -> bool:
     print("• Baixando novidades do servidor (histórico de preços)...")
     baixar = git("pull", "--rebase", "--autostash")
     if baixar.returncode != 0:
-        print(f"✘ Não consegui baixar:\n{baixar.stderr}")
+        print(f"[ERRO] Não consegui baixar:\n{baixar.stderr}")
         return False
     print("• Enviando suas rotas...")
     if git("push", mostrar=True).returncode != 0:
-        print("✘ Não consegui enviar. Confira sua internet e o login do GitHub.")
+        print("[ERRO] Não consegui enviar. Confira sua internet e o login do GitHub.")
         return False
-    print(f"✔ Tudo sincronizado! O robô roda em seguida com as rotas novas: {endereco}/actions")
+    print(f"[OK] Tudo sincronizado! O robô roda em seguida com as rotas novas: {endereco}/actions")
     return True
 
 
@@ -393,7 +417,7 @@ def menu() -> None:
     while True:
         titulo(f"RASTREADOR DE PASSAGENS — {len(rotas)} rota(s) cadastrada(s)")
         if not endereco_github():
-            print("  ⚠ Ainda não conectado ao servidor: quando quiser, use a opção 7.\n")
+            print("  [!] Ainda não conectado ao servidor: quando quiser, use a opção 7.\n")
         print("  1) Ver minhas rotas")
         print("  2) Cadastrar nova rota")
         print("  3) Pausar / reativar / remover rota")
@@ -440,10 +464,10 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nAté logo!")
     except ErroConfig as erro:
-        print(f"\n✘ Problema no arquivo de rotas: {erro}")
+        print(f"\n[ERRO] Problema no arquivo de rotas: {erro}")
         input("\nEnter para fechar.")
     except Exception as erro:  # no .exe, evita a janela fechar sem mostrar o erro
-        print(f"\n✘ Erro inesperado: {type(erro).__name__}: {erro}")
+        print(f"\n[ERRO] Erro inesperado: {type(erro).__name__}: {erro}")
         input("\nEnter para fechar.")
 
 

@@ -9,6 +9,7 @@ que no servidor são os "Secrets" do GitHub.
 import html
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 from . import aeroportos
@@ -78,7 +79,7 @@ def montar_email(rota: Rota, resumo: Resumo, resultados: list[Resultado], motivo
 def enviar_email(para: str, assunto: str, texto: str, corpo_html: str,
                  usuario: str | None = None, senha: str | None = None) -> None:
     usuario = usuario or os.environ.get("GMAIL_USUARIO")
-    senha = senha or os.environ.get("GMAIL_SENHA_APP")
+    senha = (senha or os.environ.get("GMAIL_SENHA_APP") or "").replace(" ", "")  # o Google mostra com espaços
     if not usuario or not senha:
         raise ErroEmail("Faltam o Gmail e/ou a senha de app (no servidor: Secrets do GitHub, README passo 4).")
 
@@ -90,10 +91,28 @@ def enviar_email(para: str, assunto: str, texto: str, corpo_html: str,
     mensagem.add_alternative(corpo_html, subtype="html")
 
     try:
-        with smtplib.SMTP_SSL(SERVIDOR_SMTP, PORTA_SMTP, timeout=30) as servidor:
-            servidor.login(usuario, senha.replace(" ", ""))  # o Google mostra a senha com espaços
+        # create_default_context() confere o certificado do servidor: garante que
+        # estamos falando com o Gmail de verdade antes de enviar a senha.
+        with smtplib.SMTP_SSL(SERVIDOR_SMTP, PORTA_SMTP, timeout=30, context=ssl.create_default_context()) as servidor:
+            servidor.ehlo()
+            # Por que não usar servidor.login()? Quando o Gmail recusa a senha, ele
+            # FECHA a conexão. O login() do Python então tenta um segundo método de
+            # login na conexão já fechada, e o erro real vira um genérico
+            # "Connection unexpectedly closed". Usando só o método PLAIN, o motivo
+            # verdadeiro (código 535 ou 534) chega até nós.
+            servidor.user, servidor.password = usuario, senha
+            servidor.auth("PLAIN", servidor.auth_plain)
             servidor.send_message(mensagem)
-    except smtplib.SMTPAuthenticationError:
-        raise ErroEmail("O Gmail recusou o login. Confira o e-mail e a SENHA DE APP (não é a senha normal).") from None
+    except smtplib.SMTPAuthenticationError as erro:
+        if erro.smtp_code == 534:  # "Application-specific password required"
+            raise ErroEmail("O Gmail exige uma SENHA DE APP: parece que foi usada a senha normal da conta.") from None
+        raise ErroEmail("O Gmail recusou o login: confira o e-mail e a SENHA DE APP "
+                        "(16 letras, criada na mesma conta; não é a senha normal).") from None
+    except smtplib.SMTPRecipientsRefused:
+        raise ErroEmail(f"O Gmail recusou o endereço de destino: {para}") from None
+    except smtplib.SMTPServerDisconnected:
+        raise ErroEmail("O Gmail encerrou a conexão. Tente de novo; se repetir, confira internet, antivírus ou firewall.") from None
+    except UnicodeEncodeError:
+        raise ErroEmail("O e-mail e a senha de app não podem ter acentos ou cedilha.") from None
     except (smtplib.SMTPException, OSError) as erro:
         raise ErroEmail(f"Não foi possível enviar o e-mail: {erro}") from None

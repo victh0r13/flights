@@ -254,6 +254,22 @@ Google Flights, e envia pela sua conta Gmail.
   em qualquer leitor de e-mail.
 - `html.escape()` protege o HTML: se algum texto tiver caracteres especiais como `<`, ele
   não "quebra" o layout. Essa proteção evita um tipo de falha de segurança chamado **injeção**.
+- **Conferência do certificado:** antes de mandar a senha, o programa confere o
+  "documento de identidade" digital (certificado) do servidor, para garantir que está
+  falando com o Gmail de verdade e não com um impostor no meio do caminho.
+- **Um erro que estava escondido** (aconteceu no primeiro teste real). O teste de e-mail
+  falhava com "Connection unexpectedly closed" (conexão fechada inesperadamente), que não
+  diz nada. A investigação:
+  1. A rede estava boa: o certificado era do Google e o servidor respondia normalmente.
+  2. Com uma senha falsa, dava para ver a conversa: o Gmail responde
+     `535 Username and Password not accepted` e **fecha a conexão**.
+  3. A função `login()` do Python então tentava um **segundo** método de login na conexão
+     já fechada. O erro verdadeiro (senha recusada) era trocado pelo genérico.
+
+  A correção foi autenticar só com um método (`PLAIN`), para o erro real chegar até nós, e
+  traduzir os códigos do Gmail em mensagens claras: 535 = senha recusada, 534 = usou a
+  senha normal em vez da de app. Um teste automático com um Gmail falso (ver 4.10) garante
+  que esse erro não volta.
 
 ### 4.7 `robo.py`: o maestro
 
@@ -322,18 +338,25 @@ de o problema chegar ao robô.
 ### 4.10 `tests/`: os testes automáticos
 
 **Em linguagem simples:** pequenos programas que verificam, em menos de 1 segundo, se as
-regras continuam funcionando. São 31 casos, por exemplo:
+regras continuam funcionando. São 39 casos, por exemplo:
 - "chegou na meta pela primeira vez → avisa";
 - "já avisou e caiu só 2% → não avisa";
 - "regra média ignora um dia barato isolado";
 - "período maior que 60 dias → erro com mensagem";
-- "'são paulo' encontra GRU, CGH e VCP".
+- "'são paulo' encontra GRU, CGH e VCP";
+- "Gmail recusou a senha → mensagem diz 'recusou o login', não 'conexão fechada'".
 
 **Por que não testamos o Google?** Os testes automáticos cobrem a **lógica**, que é nossa e
 não muda sozinha. O Google é externo e instável: testar ele automaticamente daria falhas
 aleatórias. Para ele existe a **busca de teste** do assistente (opção 4). Essa divisão é o
 que se chama de *pirâmide de testes*: muitos testes rápidos na lógica, poucas verificações
 manuais nas integrações externas.
+
+**E o e-mail, como se testa sem enviar e-mail?** Com um **dublê** (*mock*). Em
+`tests/test_notificador.py`, um "Gmail falso" substitui o verdadeiro durante o teste e
+imita cada situação: senha recusada, senha normal no lugar da de app, destinatário
+inválido, conexão caindo. Assim testamos como o programa **reage** a cada problema, sem
+internet e sem senha real.
 
 Para rodar: `.venv\Scripts\python -m pytest -v`
 
@@ -418,6 +441,8 @@ de minutos: 2.000 min/mês quando este projeto foi feito. Confira em
 | **Dataclass** | no Python, uma "ficha" com campos definidos |
 | **Função pura** | função que só depende do que recebe e não mexe em nada externo; fácil de testar |
 | **Teste unitário** | pequeno programa que verifica uma regra isolada |
+| **Mock** (dublê de teste) | peça falsa que imita uma peça real (ex.: o Gmail) durante um teste |
+| **Certificado** (TLS/SSL) | "documento de identidade" digital de um site ou servidor |
 | **CI** (integração contínua) | rodar os testes automaticamente a cada mudança |
 | **Exit code** | número com que um programa termina: 0 = sucesso |
 | **Retry com backoff** | tentar de novo esperando cada vez mais |
@@ -476,9 +501,9 @@ O motor (`rastreador/`) continua valendo. Trocam-se as "pontas": entrada (site e
 
 ### Sobre ter usado IA: seja transparente, é um ponto a favor
 
-Diga algo como: *"Desenvolvi com um assistente de IA (Claude Code). Eu defini os requisitos,
-tomei as decisões de arquitetura com base nos trade-offs, validei e testei, e sei explicar
-cada parte."* Hoje, saber especificar, revisar e validar o que a IA produz é uma
+Diga algo como: *"Desenvolvi com um assistente de IA. Eu defini os requisitos, tomei as
+decisões de arquitetura com base nos trade-offs, validei e testei, e sei explicar cada
+parte."* Hoje, saber especificar, revisar e validar o que a IA produz é uma
 competência valorizada. O que pega mal é dar a entender que escreveu tudo à mão e travar
 numa pergunta. Por isso este documento e os exercícios da seção 11 existem.
 
@@ -513,10 +538,23 @@ com o Google é validada manualmente pela busca de teste, porque um serviço ext
 teste automático geraria falhas aleatórias.
 
 **"Teve algum cuidado ou bug interessante?"**
-Fuso horário: os servidores rodam em UTC, então entre 21h e meia-noite de Brasília o
-servidor já está no dia seguinte e poderia pular um dia do período. Resolvi fixando o fuso
-de Brasília. Outro: verifiquei se o preço retornado era por pessoa ou total comparando
-1 e 2 adultos (R$ 1.584 contra R$ 3.168). É total.
+O melhor exemplo veio do primeiro teste real. O envio de e-mail falhava com um erro
+genérico, "Connection unexpectedly closed". Em vez de sair chutando, isolei as partes:
+primeiro a rede (certificado do Google ok, servidor respondendo), depois o login com uma
+credencial falsa, observando a conversa com o servidor. Descobri que o Gmail recusa a
+senha e fecha a conexão, e que a biblioteca do Python tentava um segundo método de login
+na conexão fechada, escondendo o erro real. Corrigi para o motivo verdadeiro aparecer,
+traduzi os códigos do Gmail em mensagens claras e criei testes com um servidor falso para
+o problema não voltar. Aproveitei para melhorar a experiência: o programa passou a
+conferir se a senha colada tem 16 letras e a entender "s" como "sim". E a causa original
+era de usabilidade: o campo de senha era invisível, e nesse modo o cmd não aceita Ctrl+V.
+O atalho chegava como um caractere de controle no lugar da senha. Tornei o campo visível,
+um trade-off consciente: é uma senha de app, que só envia e-mail e pode ser revogada.
+
+Outro cuidado, mais preventivo: fuso horário. Os servidores rodam em UTC, então entre 21h
+e meia-noite de Brasília o servidor já está no dia seguinte e poderia pular um dia do
+período. Resolvi fixando o fuso de Brasília. E mais um: verifiquei se o preço retornado era
+por pessoa ou total comparando 1 e 2 adultos (R$ 1.584 contra R$ 3.168). É total.
 
 **"Como escalaria para mil usuários?"**
 Veja a Fase 3: banco de dados, deduplicação de buscas iguais, fila de trabalho, fonte de

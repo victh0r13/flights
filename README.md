@@ -56,6 +56,13 @@ só para programas, diferente da sua senha normal.
 3. Copie a senha de **16 letras** que aparece. Ela só é mostrada uma vez.
 4. No `Configurar.exe`, use a opção **6) Testar envio de e-mail** para conferir.
 
+Dicas se o teste falhar:
+- Use a senha de app, **não** a senha normal do Gmail. Ela precisa ter sido criada **na mesma
+  conta** que você digitou como remetente.
+- Cole a senha no assistente com Ctrl+V (ou botão direito do mouse) e aperte Enter. Ela
+  aparece na tela para você conferir; o assistente avisa se não chegaram 16 letras.
+- Na dúvida, apague a senha de app antiga na mesma página e crie outra.
+
 ### Passo 3: Conectar ao GitHub (o servidor gratuito)
 
 1. Crie um repositório em https://github.com/new e marque **Private**. Assim suas rotas
@@ -117,7 +124,7 @@ Se o preço subir acima da meta e depois voltar, avisa de novo.
 | `rastreador/notificador.py` | monta e envia o e-mail |
 | `.github/workflows/verificar-precos.yml` | agenda do robô no GitHub Actions |
 | `.github/workflows/testes.yml` | roda os testes automáticos a cada mudança no código |
-| `tests/` | testes automáticos (31 casos) |
+| `tests/` | testes automáticos (39 casos) |
 
 ## Para desenvolvedores
 

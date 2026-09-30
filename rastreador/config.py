@@ -90,7 +90,7 @@ class Rota:
             raise ErroConfig(f"{onde}: adultos deve ficar entre 1 e 9.")
         if self.max_conexoes is not None and not 0 <= self.max_conexoes <= 2:
             raise ErroConfig(f"{onde}: max_conexoes deve ser 0, 1 ou 2.")
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", self.email):
+        if not email_valido(self.email):
             raise ErroConfig(f"{onde}: e-mail inválido ({self.email}).")
 
     def descrever(self) -> str:
@@ -102,6 +102,11 @@ class Rota:
             f"{self.origem} → {self.destino} | saída entre {periodo} | {tipo} | "
             f"alvo {formatar_reais(self.preco_alvo)} ({regra})"
         )
+
+
+def email_valido(texto: str) -> bool:
+    """Confere o formato básico: algo@algo.algo, sem espaços."""
+    return re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", texto) is not None
 
 
 def formatar_reais(valor: float) -> str:
