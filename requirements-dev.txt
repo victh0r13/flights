@@ -1,0 +1,4 @@
+# Ferramentas só de desenvolvimento (testes e geração do .exe)
+-r requirements.txt
+pytest
+pyinstaller

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "bsb-ssa",
+    "nome": "BSB/SSA",
+    "origem": "BSB",
+    "destino": "SSA",
+    "periodo_inicio": "2026-10-20",
+    "periodo_fim": "2026-12-15",
+    "preco_alvo": 700,
+    "email": "victorhugovhg13@gmail.com",
+    "regra": "menor_preco",
+    "dias_de_viagem": 5,
+    "adultos": 1,
+    "max_conexoes": 0,
+    "ativa": true
+  }
+]
