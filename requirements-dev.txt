@@ -1,4 +1,5 @@
 # Ferramentas só de desenvolvimento (testes e geração do .exe)
--r requirements.txt
+-r requirements-web.txt
 pytest
+httpx  # usado pelo TestClient do FastAPI
 pyinstaller

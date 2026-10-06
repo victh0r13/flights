@@ -56,6 +56,30 @@ def ultima_leitura(rota_id: str, caminho: Path = ARQ_HISTORICO) -> tuple[str, in
     return quando, min(precos), sum(precos) / len(precos)
 
 
+def historico_rota(rota_id: str, limite: int = 60, caminho: Path = ARQ_HISTORICO) -> tuple[list[dict], list[dict]]:
+    """(resumo de cada verificação, mais recente primeiro; preços da verificação mais recente)."""
+    if not caminho.exists():
+        return [], []
+    por_consulta: dict[str, list[dict]] = {}
+    with caminho.open(encoding="utf-8", newline="") as arquivo:
+        for linha in csv.DictReader(arquivo):
+            if linha["rota"] == rota_id:
+                por_consulta.setdefault(linha["consultado_em"], []).append(linha)
+
+    consultas = []
+    for quando in sorted(por_consulta, reverse=True)[:limite]:
+        precos = [int(l["preco"]) for l in por_consulta[quando]]
+        consultas.append({"quando": quando, "menor": min(precos), "media": sum(precos) / len(precos),
+                          "dias": len(precos)})
+
+    ultima = []
+    if consultas:
+        for l in sorted(por_consulta[consultas[0]["quando"]], key=lambda l: l["data_ida"]):
+            ultima.append({"data_ida": l["data_ida"], "data_volta": l["data_volta"] or None, "preco": int(l["preco"]),
+                           "companhia": l["companhia"], "conexoes": int(l["conexoes"])})
+    return consultas, ultima
+
+
 def carregar_avisos(caminho: Path = ARQ_AVISOS) -> dict[str, float]:
     if not caminho.exists():
         return {}

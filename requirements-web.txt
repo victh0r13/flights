@@ -1,0 +1,4 @@
+# API usada pela interface web (roda no seu PC)
+-r requirements.txt
+fastapi
+uvicorn

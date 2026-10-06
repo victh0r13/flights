@@ -6,3 +6,7 @@ build/
 dist/
 *.spec
 *.exe
+
+# atalho com caminho absoluto deste PC (recriado por criar_atalho.ps1)
+*.lnk
+docs/COMO_FUNCIONA.md

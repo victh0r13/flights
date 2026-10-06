@@ -7,7 +7,6 @@ onde o robô (robo.py) passa a usá-lo.
 
 import os
 import re
-import subprocess
 import sys
 from datetime import date, datetime
 
@@ -28,7 +27,9 @@ from rastreador.config import (
     hoje,
     salvar_rotas,
 )
+from rastreador import sincronizacao
 from rastreador.notificador import ErroEmail, enviar_email
+from rastreador.sincronizacao import ErroSincronizacao, endereco_github, git
 
 LINHA = "=" * 64
 SEGUNDOS_POR_DIA = 4  # estimativa para avisar quanto tempo a busca vai levar
@@ -313,29 +314,6 @@ def testar_email() -> None:
 # O "git" é o programa que envia e baixa arquivos do GitHub. O assistente
 # roda os comandos por você; docs/COMO_FUNCIONA.md explica cada um.
 
-def git(*args: str, mostrar: bool = False) -> subprocess.CompletedProcess:
-    """Roda um comando do git na pasta do projeto.
-
-    mostrar=True deixa o git falar direto na tela — necessário quando ele pode
-    pedir login (na primeira vez abre uma janela do GitHub).
-    """
-    if mostrar:
-        sys.stdout.flush()  # garante que nossas mensagens apareçam antes das do git
-        return subprocess.run(["git", *args], cwd=PASTA_PROJETO)
-    return subprocess.run(["git", *args], cwd=PASTA_PROJETO, capture_output=True, text=True, encoding="utf-8")
-
-
-def endereco_github() -> str | None:
-    """Página do repositório no GitHub, se esta pasta já estiver conectada."""
-    if not (PASTA_PROJETO / ".git").exists():
-        return None
-    try:
-        resultado = git("remote", "get-url", "origin")
-    except FileNotFoundError:
-        return None
-    return resultado.stdout.strip().removesuffix(".git") if resultado.returncode == 0 else None
-
-
 def conectar_github() -> None:
     titulo("Conectar ao GitHub (só na primeira vez)")
     if endereco := endereco_github():
@@ -388,24 +366,12 @@ def conectar_github() -> None:
 def sincronizar() -> bool:
     """Envia config/rotas.json para o GitHub e baixa o histórico novo do robô."""
     titulo("Sincronizar com o servidor (GitHub)")
-    endereco = endereco_github()
-    if not endereco:
-        print("Esta pasta ainda não está conectada ao GitHub. Use a opção 7 primeiro.")
+    try:
+        sincronizacao.sincronizar(avisar=lambda passo: print(f"• {passo}"), mostrar_git=True)
+    except ErroSincronizacao as erro:
+        print(f"[ERRO] {erro}")
         return False
-    git("add", "config/rotas.json")
-    if git("diff", "--cached", "--quiet").returncode != 0:
-        git("commit", "-m", "Atualiza rotas pelo assistente")
-        print("• Alterações preparadas para envio.")
-    print("• Baixando novidades do servidor (histórico de preços)...")
-    baixar = git("pull", "--rebase", "--autostash")
-    if baixar.returncode != 0:
-        print(f"[ERRO] Não consegui baixar:\n{baixar.stderr}")
-        return False
-    print("• Enviando suas rotas...")
-    if git("push", mostrar=True).returncode != 0:
-        print("[ERRO] Não consegui enviar. Confira sua internet e o login do GitHub.")
-        return False
-    print(f"[OK] Tudo sincronizado! O robô roda em seguida com as rotas novas: {endereco}/actions")
+    print(f"[OK] O robô roda em seguida com as rotas novas: {endereco_github()}/actions")
     return True
 
 

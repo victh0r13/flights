@@ -5,8 +5,8 @@ do valor desejado, por exemplo: *"me avise quando São Paulo → Lisboa, saindo 
 e 20/12, custar até R$ 4.000"*.
 
 - Roda **24 horas por dia, de graça, com o PC desligado** (no GitHub Actions).
-- Configuração por um assistente no terminal (`Configurar.exe`) que faz perguntas simples.
-  Não precisa editar código.
+- **Interface web** (Next.js + API em Python/FastAPI) para cadastrar rotas, testar buscas ao
+  vivo e ver o histórico de preços. Também há um assistente de terminal (`Configurar.exe`).
 - Duas regras de alerta: **qualquer dia** do período até o valor, ou **média** do período até o valor.
 - Guarda o histórico de todos os preços encontrados (abre no Excel).
 - Não repete o mesmo alerta: só avisa de novo se o preço cair pelo menos mais 3%.
@@ -17,7 +17,8 @@ e 20/12, custar até R$ 4.000"*.
 
 ```mermaid
 flowchart LR
-    A["Você<br/>Configurar.exe"] -- "suas rotas" --> B[("GitHub<br/>repositório")]
+    W["Interface web<br/>(Next.js)"] -- "HTTP" --> API["API<br/>(FastAPI)"]
+    API -- "suas rotas (git)" --> B[("GitHub<br/>repositório")]
     B -- "a cada 6 horas" --> C["Robô<br/>(GitHub Actions)"]
     C -- "pesquisa preços" --> D["Google Flights"]
     C -- "salva histórico" --> B
@@ -25,7 +26,8 @@ flowchart LR
     E --> F["📬 Seu e-mail"]
 ```
 
-1. Você cadastra rotas no assistente, que salva em `config/rotas.json` e envia ao GitHub.
+1. Você cadastra rotas na interface web, que salva em `config/rotas.json` e envia ao GitHub
+   quando você clica em **Sincronizar**.
 2. A cada 6 horas o GitHub liga uma máquina temporária e roda o robô (`robo.py`).
 3. O robô pesquisa o preço de cada dia do período e compara com a sua meta.
 4. Se estiver na meta, manda o e-mail. O histórico é salvo de volta no GitHub.
@@ -100,6 +102,37 @@ as mudanças e baixa os preços mais recentes, que aparecem em **1) Ver minhas r
 
 ---
 
+## Interface web
+
+Precisa do [Node.js](https://nodejs.org) e do [pnpm](https://pnpm.io), além do Python.
+Na primeira vez:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r requirements-dev.txt
+cd web
+pnpm install
+```
+
+Depois, abra pelo atalho **"Rastreador de Passagens"** (crie com
+`powershell -ExecutionPolicy Bypass -File criar_atalho.ps1`; dá para arrastar para a Área de
+Trabalho ou fixar na barra de tarefas) ou pelo `iniciar.bat`.
+
+Ele abre como um **aplicativo**: uma janela própria do Chrome (ou do Edge), sem barra de
+endereço, com os servidores rodando escondidos. **Fechar a janela desliga tudo.** Se algo der
+errado, os registros (logs) ficam em `%LOCALAPPDATA%\RastreadorPassagens\logs`.
+
+Por baixo, `rastreador_app.pyw` liga a API (porta 8000) e o Next.js (porta 3000), espera os
+dois responderem e abre o navegador em *modo aplicativo* (`--app=`), com um perfil próprio.
+
+| Endereço | O que é |
+|---|---|
+| http://localhost:3000 | a interface: rotas, busca de teste, histórico, teste de e-mail, sincronização |
+| http://localhost:8000/docs | documentação interativa da API (dá para testar cada endpoint) |
+
+As mudanças nas rotas ficam no seu PC até você clicar em **Sincronizar** (no topo). Isso
+envia as rotas ao robô e baixa os preços mais recentes que ele encontrou.
+
 ## Regras de alerta
 
 | Regra | Avisa quando... | Bom para |
@@ -114,7 +147,12 @@ Se o preço subir acima da meta e depois voltar, avisa de novo.
 
 | Arquivo | O que faz |
 |---|---|
-| `configurar.py` / `Configurar.exe` | assistente no terminal (cadastro, testes, sincronização) |
+| `web/` | interface web (Next.js, React, TypeScript, Tailwind) |
+| `api/` | API HTTP (FastAPI) que a interface usa; uma "casca" em volta do motor |
+| `rastreador_app.pyw` | abre tudo como aplicativo (servidores escondidos + janela do Chrome/Edge) |
+| `iniciar.bat` / `criar_atalho.ps1` | jeitos de abrir o app: duplo clique / atalho com ícone |
+| `recursos/icone.ico` | ícone do app |
+| `configurar.py` / `Configurar.exe` | assistente no terminal (alternativa à interface) |
 | `robo.py` | uma rodada completa de verificação; é o que o servidor executa |
 | `rastreador/config.py` | formato e validação das rotas |
 | `rastreador/aeroportos.py` | traduz "Lisboa" para "LIS" |
@@ -122,9 +160,10 @@ Se o preço subir acima da meta e depois voltar, avisa de novo.
 | `rastreador/analise.py` | calcula menor preço e média e decide se avisa |
 | `rastreador/armazenamento.py` | histórico (`dados/historico.csv`) e avisos já enviados |
 | `rastreador/notificador.py` | monta e envia o e-mail |
+| `rastreador/sincronizacao.py` | envia as rotas e baixa o histórico do GitHub (git) |
 | `.github/workflows/verificar-precos.yml` | agenda do robô no GitHub Actions |
 | `.github/workflows/testes.yml` | roda os testes automáticos a cada mudança no código |
-| `tests/` | testes automáticos (39 casos) |
+| `tests/` | testes automáticos (45 casos) |
 
 ## Para desenvolvedores
 
@@ -134,6 +173,8 @@ python -m venv .venv
 .venv\Scripts\python -m pytest        # testes
 .venv\Scripts\python configurar.py    # assistente sem gerar o .exe
 .venv\Scripts\python robo.py          # uma rodada do robô no seu PC
+.venv\Scripts\uvicorn api.main:app --reload --reload-dir api --reload-dir rastreador   # só a API
+cd web; pnpm dev                      # só a interface (também: pnpm lint, pnpm build)
 gerar_exe.bat                         # gera o Configurar.exe
 ```
 
